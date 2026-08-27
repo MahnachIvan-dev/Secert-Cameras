@@ -3,126 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Камера — Подключение</title>
+  <title>Камера</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<div class="camera-page">
-
-  <div class="header" style="border-radius: var(--radius); margin-bottom: 24px;">
-    <div class="header-logo">
-      <div class="icon">📷</div>
-      <span>КАМЕРА</span>
-    </div>
-    <div id="statusIndicator" class="status-indicator status-disconnected">
-      ● Отключена
-    </div>
-  </div>
-
-  <div id="settingsSection">
-    <div class="control-card" style="margin-bottom: 20px;">
-      <h3>Настройки подключения</h3>
-      <div class="form-group">
-        <label class="form-label">Название камеры</label>
-        <input class="form-input" id="cameraName" type="text" value="My Camera">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Расположение</label>
-        <input class="form-input" id="cameraLocation" type="text" value="Комната">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Качество (FPS отправки)</label>
-        <input type="range" id="fpsRange" min="1" max="30" value="10">
-        <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--text-muted)">
-          <span>1 fps</span>
-          <span id="fpsValue">10 fps</span>
-          <span>30 fps</span>
-        </div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Качество JPEG (1-100)</label>
-        <input type="range" id="qualityRange" min="10" max="100" value="50">
-        <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--text-muted)">
-          <span>Низкое</span>
-          <span id="qualityValue">50%</span>
-          <span>Высокое</span>
-        </div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Разрешение камеры</label>
-        <select class="form-select" id="resolutionSelect">
-          <option value="640x480">640×480</option>
-          <option value="1280x720" selected>1280×720 HD</option>
-          <option value="1920x1080">1920×1080 Full HD</option>
-        </select>
-      </div>
-      <div class="setting-row">
-        <span class="setting-label">Обнаружение движения</span>
-        <label class="toggle-switch">
-          <input type="checkbox" id="motionDetection" checked>
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-      <div class="setting-row">
-        <span class="setting-label">Чувствительность движения</span>
-        <input type="range" id="motionSensitivity" min="1" max="100" value="30" style="width:120px">
-      </div>
-      <div style="margin-top: 16px;">
-        <button class="btn btn-primary" onclick="startCamera()" style="width:100%; justify-content:center; padding: 12px;">
-          ▶ Запустить камеру
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <div id="previewSection" style="display: none;">
-    <div class="camera-preview">
-      <video id="videoPreview" autoplay playsinline muted></video>
-      <canvas id="motionCanvas"></canvas>
-    </div>
-
-    <div class="camera-controls">
-      <div class="control-card">
-        <h3>Статус</h3>
-        <div class="setting-row">
-          <span class="setting-label">ID камеры</span>
-          <span class="setting-value" id="cameraId">—</span>
-        </div>
-        <div class="setting-row">
-          <span class="setting-label">Разрешение</span>
-          <span class="setting-value" id="resInfo">—</span>
-        </div>
-        <div class="setting-row">
-          <span class="setting-label">Кадров отправлено</span>
-          <span class="setting-value" id="frameCount">0</span>
-        </div>
-        <div class="setting-row">
-          <span class="setting-label">Движение</span>
-          <span class="setting-value" id="motionStatus">Нет</span>
-        </div>
-      </div>
-
-      <div class="control-card">
-        <h3>Управление</h3>
-        <div style="display:flex; flex-direction:column; gap:8px;">
-          <button class="btn btn-danger" onclick="stopCamera()" style="justify-content:center;">■ Остановить</button>
-          <button class="btn" onclick="toggleMotion()" id="motionToggleBtn" style="justify-content:center;">
-            👁 Движение: ВКЛ
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <div class="control-card">
-      <h3>Логи</h3>
-      <div class="log-output" id="logOutput"></div>
-    </div>
-  </div>
-
+<div class="camera-page" style="padding:20px; text-align:center;">
+  <h2>🎥 Трансляция камеры</h2>
+  <div id="status" style="margin:10px; font-weight:bold; color:var(--warning);">Подключение...</div>
+  <video id="videoPreview" autoplay playsinline muted style="width:100%; max-width:500px; border-radius:10px; background:#000;"></video>
 </div>
-
-<div class="toast-container" id="toastContainer"></div>
-
 <script src="camera.js"></script>
 </body>
 </html>
