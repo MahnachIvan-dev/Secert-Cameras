@@ -1,6 +1,7 @@
 let ws = null;
 let stream = null;
 let cameraId = null;
+let frameCount = 0;
 
 document.addEventListener('DOMContentLoaded', () => {
   startCamera();
@@ -8,10 +9,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
 async function startCamera() {
   const params = new URLSearchParams(window.location.search);
-  const name = params.get('name') || 'Camera';
+  const name = params.get('name') || 'Камера';
   const token = params.get('token');
 
+  document.getElementById('camTitle').textContent = decodeURIComponent(name).toUpperCase();
+
   try {
+    // 640x480 при 20 FPS — оптимально для трансляции нескольких камер одновременно
     stream = await navigator.mediaDevices.getUserMedia({
       video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 20 } },
       audio: false
@@ -23,7 +27,7 @@ async function startCamera() {
 
     connectWS(name, token);
   } catch (e) {
-    document.getElementById('status').textContent = 'Ошибка доступа к камере: ' + e.message;
+    updateStatus('disconnected', 'Ошибка доступа к камере: ' + e.message);
   }
 }
 
@@ -35,8 +39,7 @@ function connectWS(name, token) {
   ws = new WebSocket(url);
 
   ws.onopen = () => {
-    document.getElementById('status').textContent = '● Трансляция идет';
-    document.getElementById('status').style.color = 'var(--success)';
+    updateStatus('connected', '● Трансляция идет');
     startStreaming();
   };
 
@@ -48,8 +51,7 @@ function connectWS(name, token) {
   };
 
   ws.onclose = () => {
-    document.getElementById('status').textContent = 'Отключено. Переподключение...';
-    document.getElementById('status').style.color = 'var(--danger)';
+    updateStatus('disconnected', '● Отключено. Переподключение...');
     setTimeout(() => connectWS(name, token), 2000);
   };
 }
@@ -80,9 +82,17 @@ function startStreaming() {
 
         if (ws.readyState === WebSocket.OPEN && ws.bufferedAmount === 0) {
           ws.send(packet.buffer);
+          frameCount++;
+          document.getElementById('frameCount').textContent = frameCount;
         }
       });
-    }, 'image/jpeg', 0.4); // Качество 40% — баланс идеальной плавности и четкости
+    }, 'image/jpeg', 0.4);
 
   }, 1000 / 20); // 20 FPS
+}
+
+function updateStatus(type, text) {
+  const el = document.getElementById('status');
+  el.className = `status-indicator status-${type}`;
+  el.textContent = text;
 }
