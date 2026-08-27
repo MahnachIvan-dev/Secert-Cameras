@@ -8,12 +8,10 @@
 </head>
 <body>
 
-<!-- Connection Status -->
 <div class="connection-bar" id="connectionBar">
   ⚠ Соединение с сервером потеряно. Переподключение...
 </div>
 
-<!-- Header -->
 <header class="header">
   <div class="header-logo">
     <div class="icon">🎥</div>
@@ -37,14 +35,11 @@
 
   <div class="header-actions">
     <button class="btn" onclick="toggleAlerts()" title="Алерты">🔔</button>
-    <button class="btn btn-primary" onclick="openAddCamera()">+ Камера</button>
+    <button class="btn btn-primary" onclick="openGenerateLink()">+ Ссылка на камеру</button>
   </div>
 </header>
 
-<!-- Main Layout -->
 <div class="main-container">
-
-  <!-- Sidebar - Camera List -->
   <aside class="sidebar">
     <div class="sidebar-header">
       <span class="sidebar-title">Камеры</span>
@@ -53,12 +48,11 @@
     <div class="camera-list" id="cameraList">
       <div class="empty-state" style="padding: 40px 20px">
         <div class="empty-icon">📷</div>
-        <p>Нет камер.<br>Откройте <a href="camera.html" target="_blank" style="color:var(--accent)">camera.html</a></p>
+        <p>Нет камер.</p>
       </div>
     </div>
   </aside>
 
-  <!-- Content - Video Grid -->
   <div class="content">
     <div class="toolbar">
       <div class="toolbar-group">
@@ -80,13 +74,11 @@
       <div class="empty-state" id="emptyState">
         <div class="empty-icon">📹</div>
         <h3>Нет активных камер</h3>
-        <p>Подключите камеры, открыв страницу <strong>camera.html</strong> в другой вкладке или на другом устройстве</p>
-        <a href="camera.html" target="_blank" class="btn btn-primary">Открыть камеру</a>
+        <button class="btn btn-primary" onclick="openGenerateLink()">Подключить камеру</button>
       </div>
     </div>
   </div>
 
-  <!-- Alerts Panel -->
   <aside class="alerts-panel" id="alertsPanel">
     <div class="alerts-header">
       <span class="sidebar-title">🔔 Алерты</span>
@@ -103,13 +95,11 @@
   </aside>
 </div>
 
-<!-- Fullscreen View -->
 <div class="fullscreen-overlay" id="fullscreenOverlay" onclick="closeFullscreen()">
   <button class="btn fullscreen-close" onclick="closeFullscreen()">✕ Закрыть</button>
   <img id="fullscreenImg" src="" alt="">
 </div>
 
-<!-- Edit Camera Modal -->
 <div class="modal-overlay" id="editModal">
   <div class="modal">
     <div class="modal-title">
@@ -151,7 +141,52 @@
   </div>
 </div>
 
-<!-- Toasts -->
+<!-- Модальное окно для создания ссылки -->
+<div class="modal-overlay" id="linkModal">
+  <div class="modal">
+    <div class="modal-title">
+      <span>🔗 Ссылка на подключение камеры</span>
+      <button class="btn btn-icon" onclick="closeLinkModal()">✕</button>
+    </div>
+
+    <div id="linkStep1">
+      <p style="color:var(--text-secondary); margin-bottom:16px; font-size:13px;">
+        Заполните данные — получите ссылку, которую можно открыть на телефоне или планшете, чтобы превратить его в камеру.
+      </p>
+      <div class="form-group">
+        <label class="form-label">Название камеры</label>
+        <input class="form-input" id="linkName" type="text" placeholder="Например: Прихожая" value="Camera">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Расположение</label>
+        <input class="form-input" id="linkLocation" type="text" placeholder="Например: 1 этаж" value="Комната">
+      </div>
+      <div class="form-actions">
+        <button class="btn" onclick="closeLinkModal()">Отмена</button>
+        <button class="btn btn-primary" onclick="generateLink()">🔗 Сгенерировать</button>
+      </div>
+    </div>
+
+    <div id="linkStep2" style="display:none;">
+      <p style="color:var(--text-secondary); margin-bottom:12px; font-size:13px;">
+        Откройте эту ссылку на устройстве, которое станет камерой:
+      </p>
+      <div class="form-group">
+        <input class="form-input" id="linkResult" type="text" readonly onclick="this.select()" style="font-size:12px;">
+      </div>
+      <div id="qrContainer" style="text-align:center; margin: 16px 0; padding: 16px; background: white; border-radius: var(--radius); display:none;">
+        <img id="qrImage" src="" alt="QR Code" style="max-width: 200px;">
+        <p style="color:#333; font-size:12px; margin-top:8px;">Отсканируйте телефоном</p>
+      </div>
+      <div class="form-actions">
+        <button class="btn" onclick="closeLinkModal()">Закрыть</button>
+        <button class="btn" onclick="showQR()">📱 Показать QR</button>
+        <button class="btn btn-primary" onclick="copyLink()">📋 Копировать</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="toast-container" id="toastContainer"></div>
 
 <script src="main.js"></script>
