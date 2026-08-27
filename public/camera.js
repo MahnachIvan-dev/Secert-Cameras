@@ -12,7 +12,6 @@ let motionCtx = null;
 let video = null;
 let cameraToken = null;
 
-// Инициализация после загрузки страницы
 document.addEventListener('DOMContentLoaded', () => {
   const fpsRange = document.getElementById('fpsRange');
   if (fpsRange) {
@@ -48,11 +47,8 @@ function initFromURL() {
     if (el) el.value = decodeURIComponent(location);
   }
 
-  // Автозапуск
   if (autostart === '1') {
-    setTimeout(() => {
-      startCamera();
-    }, 500);
+    setTimeout(() => startCamera(), 500);
   }
 }
 
@@ -106,8 +102,7 @@ async function startCamera() {
     connectWS(name, location, resStr);
 
   } catch (err) {
-    log(`Ошибка доступа к камере: ${err.message}`, 'error');
-    showToast('Не удалось получить доступ к камере: ' + err.message, 'error');
+    log(`Ошибка: ${err.message}`, 'error');
   }
 }
 
@@ -148,53 +143,60 @@ function connectWS(name, location, resolution) {
         cameraId = msg.id;
         const camIdEl = document.getElementById('cameraId');
         if (camIdEl) camIdEl.textContent = cameraId.slice(0, 12) + '...';
-        log(`Зарегистрирована с ID: ${cameraId}`, 'success');
+        log(`Зарегистрирована ID: ${cameraId}`, 'success');
       }
     } catch (e) {}
   };
 
   ws.onclose = () => {
-    log('Отключено от сервера', 'error');
     updateStatus('disconnected');
     if (sendInterval) { clearInterval(sendInterval); sendInterval = null; }
-    if (stream) {
-      log('Переподключение через 3с...', 'warn');
-      setTimeout(() => { if (stream) connectWS(name, location, resolution); }, 3000);
-    }
+    if (stream) setTimeout(() => { if (stream) connectWS(name, location, resolution); }, 3000);
   };
-
-  ws.onerror = () => log('Ошибка WebSocket', 'error');
 }
 
+// УЛЬТРА-БЫСТРАЯ БИНАРНАЯ ОТПРАВКА
 function startSending() {
   const fpsInput = document.getElementById('fpsRange');
   const qualityInput = document.getElementById('qualityRange');
 
-  const fps = fpsInput ? (parseInt(fpsInput.value) || 10) : 10;
+  const fps = fpsInput ? (parseInt(fpsInput.value) || 20) : 20; // Выставили по умолчанию 20 FPS
   const quality = qualityInput ? (parseInt(qualityInput.value) / 100 || 0.4) : 0.4;
   const interval = 1000 / fps;
 
-  log(`Отправка: ${fps} fps, качество: ${Math.round(quality * 100)}%`, 'info');
+  log(`Отправка: ${fps} FPS, Качество: ${Math.round(quality * 100)}%`, 'info');
 
   if (sendInterval) clearInterval(sendInterval);
+
+  const encoder = new TextEncoder();
 
   sendInterval = setInterval(() => {
     if (!ws || ws.readyState !== WebSocket.OPEN || !video || video.paused) return;
 
-    // Пропуск кадров для убирания лагов сети
+    // Автоматическая защита от задержек сети
     if (ws.bufferedAmount > 0) return;
 
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     if (motionEnabled) detectMotion();
 
-    // Быстрая бинарная передача кадра
     canvas.toBlob((blob) => {
-      if (blob && ws && ws.readyState === WebSocket.OPEN && ws.bufferedAmount === 0) {
-        ws.send(blob);
-        frameCount++;
-        const fcEl = document.getElementById('frameCount');
-        if (fcEl) fcEl.textContent = frameCount;
-      }
+      if (!blob || !ws || ws.readyState !== WebSocket.OPEN || ws.bufferedAmount > 0) return;
+
+      blob.arrayBuffer().then(jpegBuffer => {
+        const idBytes = encoder.encode(cameraId);
+        const packet = new Uint8Array(1 + idBytes.length + jpegBuffer.byteLength);
+
+        packet[0] = idBytes.length;
+        packet.set(idBytes, 1);
+        packet.set(new Uint8Array(jpegBuffer), 1 + idBytes.length);
+
+        if (ws.readyState === WebSocket.OPEN && ws.bufferedAmount === 0) {
+          ws.send(packet.buffer);
+          frameCount++;
+          const fcEl = document.getElementById('frameCount');
+          if (fcEl) fcEl.textContent = frameCount;
+        }
+      });
     }, 'image/jpeg', quality);
 
   }, interval);
@@ -218,7 +220,6 @@ function detectMotion() {
     const sensitivity = sensInput ? (parseInt(sensInput.value) || 30) : 30;
     const threshold = 255 - (sensitivity * 2.55);
     let changedPixels = 0;
-    const totalPixels = smallW * smallH;
 
     for (let i = 0; i < currentFrame.data.length; i += 4) {
       const rDiff = Math.abs(currentFrame.data[i] - prevFrameData.data[i]);
@@ -227,7 +228,7 @@ function detectMotion() {
       if ((rDiff + gDiff + bDiff) / 3 > threshold) changedPixels++;
     }
 
-    const changePercent = (changedPixels / totalPixels) * 100;
+    const changePercent = (changedPixels / (smallW * smallH)) * 100;
     const mStatus = document.getElementById('motionStatus');
 
     if (changePercent > 5) {
@@ -239,8 +240,7 @@ function detectMotion() {
       if (!detectMotion.lastAlert || Date.now() - detectMotion.lastAlert > 5000) {
         detectMotion.lastAlert = Date.now();
         if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'motion-detected', message: `Движение обнаружено (${changePercent.toFixed(1)}%)` }));
-          log(`Движение: ${changePercent.toFixed(1)}%`, 'warn');
+          ws.send(JSON.stringify({ type: 'motion-detected', message: `Движение (${changePercent.toFixed(1)}%)` }));
         }
       }
 
@@ -265,14 +265,6 @@ function toggleMotion() {
   if (btn) {
     btn.textContent = `👁 Движение: ${motionEnabled ? 'ВКЛ' : 'ВЫКЛ'}`;
     btn.className = motionEnabled ? 'btn btn-success' : 'btn';
-  }
-  if (!motionEnabled && motionCtx) {
-    motionCtx.clearRect(0, 0, motionCanvas.width, motionCanvas.height);
-    const mStatus = document.getElementById('motionStatus');
-    if (mStatus) {
-      mStatus.textContent = 'Выкл';
-      mStatus.style.color = 'var(--text-muted)';
-    }
   }
 }
 
@@ -300,30 +292,8 @@ function log(message, type = 'info') {
   entry.textContent = `[${time}] ${message}`;
   output.appendChild(entry);
   output.scrollTop = output.scrollHeight;
-  while (output.children.length > 200) output.removeChild(output.firstChild);
 }
 
-function showToast(message, type = 'info') {
-  const container = document.getElementById('toastContainer');
-  if (!container) return;
-  const toast = document.createElement('div');
-  toast.className = `toast toast-${type}`;
-  toast.textContent = message;
-  container.appendChild(toast);
-  setTimeout(() => {
-    toast.style.opacity = '0';
-    toast.style.transform = 'translateX(100px)';
-    setTimeout(() => toast.remove(), 300);
-  }, 4000);
-}
-
-// Привязываем функции к window для HTML onclick
 window.startCamera = startCamera;
 window.stopCamera = stopCamera;
 window.toggleMotion = toggleMotion;
-
-window.addEventListener('beforeunload', () => {
-  if (sendInterval) clearInterval(sendInterval);
-  if (ws) ws.close();
-  if (stream) stream.getTracks().forEach(t => t.stop());
-});
