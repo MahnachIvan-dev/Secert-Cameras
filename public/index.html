@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Видеонаблюдение</title>
+  <title>Видеонаблюдение — Множественный просмотр</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -11,51 +11,96 @@
 <header class="header">
   <div class="header-logo">
     <div class="icon">🎥</div>
-    <span>SURVEILLANCE</span>
+    <span>SURVEILLANCE HUB</span>
   </div>
+
+  <div class="header-stats">
+    <div class="header-stat">
+      <span class="dot dot-online"></span>
+      <span id="statOnline">0</span> онлайн
+    </div>
+  </div>
+
   <div class="header-actions">
-    <button class="btn btn-primary" onclick="openGenerateLink()">+ Ссылка на камеру</button>
+    <button class="btn btn-primary" onclick="openGenerateLink()">+ Подключить камеру</button>
   </div>
 </header>
 
 <div class="main-container">
+  <!-- Боковая панель со списком камер -->
   <aside class="sidebar">
-    <div class="sidebar-header"><span class="sidebar-title">Камеры</span></div>
+    <div class="sidebar-header">
+      <span class="sidebar-title">Список камер</span>
+      <button class="btn btn-sm" onclick="refreshCameras()">↻</button>
+    </div>
     <div class="camera-list" id="cameraList"></div>
   </aside>
 
+  <!-- Основной экран сетки -->
   <div class="content">
+    <div class="toolbar">
+      <div class="toolbar-group">
+        <button class="btn btn-sm" onclick="setGridLayout(1)" title="1 Камера">1×1</button>
+        <button class="btn btn-sm" onclick="setGridLayout(4)" title="4 Камеры">2×2</button>
+        <button class="btn btn-sm" onclick="setGridLayout(9)" title="9 Камер">3×3</button>
+        <button class="btn btn-sm" onclick="setGridLayout(16)" title="16 Камер">4×4</button>
+      </div>
+      <div class="toolbar-divider"></div>
+      <span style="font-size:12px; color:var(--text-muted)" id="gridInfo">Сетка: 2×2</span>
+    </div>
+
     <div class="view-grid grid-4" id="viewGrid">
       <div class="empty-state">
         <div class="empty-icon">📹</div>
-        <h3>Нет активных камер</h3>
-        <button class="btn btn-primary" onclick="openGenerateLink()">Подключить камеру</button>
+        <h3>Камеры не подключены</h3>
+        <p>Создайте ссылку и откройте её на других устройствах (телефонах, планшетах)</p>
+        <button class="btn btn-primary" onclick="openGenerateLink()">+ Сгенерировать ссылку</button>
       </div>
     </div>
   </div>
 </div>
 
+<!-- Полноэкранный просмотр -->
+<div class="fullscreen-overlay" id="fullscreenOverlay" onclick="closeFullscreen()">
+  <button class="btn fullscreen-close" onclick="closeFullscreen()">✕ Закрыть</button>
+  <img id="fullscreenImg" src="" alt="">
+</div>
+
+<!-- Модалка ссылки -->
 <div class="modal-overlay" id="linkModal">
   <div class="modal">
     <div class="modal-title">
-      <span>🔗 Ссылка на камеру</span>
+      <span>🔗 Ссылка для новой камеры</span>
       <button class="btn btn-icon" onclick="closeLinkModal()">✕</button>
     </div>
     <div id="linkStep1">
       <div class="form-group">
-        <label class="form-label">Название</label>
-        <input class="form-input" id="linkName" type="text" value="Камера">
+        <label class="form-label">Название камеры (например: Двор, Кухня)</label>
+        <input class="form-input" id="linkName" type="text" value="Камера 1">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Расположение</label>
+        <input class="form-input" id="linkLocation" type="text" value="Вход">
       </div>
       <div class="form-actions">
+        <button class="btn" onclick="closeLinkModal()">Отмена</button>
         <button class="btn btn-primary" onclick="generateLink()">Сгенерировать</button>
       </div>
     </div>
     <div id="linkStep2" style="display:none;">
+      <p style="font-size:13px; color:var(--text-secondary); margin-bottom:8px;">
+        Откройте эту ссылку на устройстве, которое станет камерой:
+      </p>
       <div class="form-group">
         <input class="form-input" id="linkResult" type="text" readonly>
       </div>
+      <div id="qrContainer" style="text-align:center; margin: 16px 0; display:none;">
+        <img id="qrImage" src="" style="max-width: 180px; border-radius: 8px;">
+      </div>
       <div class="form-actions">
-        <button class="btn btn-primary" onclick="copyLink()">📋 Копировать</button>
+        <button class="btn" onclick="closeLinkModal()">Закрыть</button>
+        <button class="btn" onclick="showQR()">📱 QR-код</button>
+        <button class="btn btn-primary" onclick="copyLink()">📋 Копировать ссылку</button>
       </div>
     </div>
   </div>
