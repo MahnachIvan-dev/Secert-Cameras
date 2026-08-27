@@ -3,8 +3,6 @@ let cameras = {};
 let gridLayout = 4;
 let alertsPanelOpen = false;
 let editingCameraId = null;
-let reconnectTimer = null;
-let reconnectAttempt = 0;
 let currentLink = '';
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -18,59 +16,73 @@ document.addEventListener('DOMContentLoaded', () => {
 function connectWebSocket() {
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${protocol}://${location.host}?role=viewer`);
+  ws.binaryType = 'arraybuffer'; // Включаем прием чистого бинарного потока
 
   const connBar = document.getElementById('connectionBar');
 
   ws.onopen = () => {
     connBar.className = 'connection-bar';
-    reconnectAttempt = 0;
     showToast('Подключено к серверу', 'success');
   };
 
   ws.onmessage = (event) => {
+    // ОБРАБОТКА БИНАРНОГО КАДРА ВИДЕО
+    if (event.data instanceof ArrayBuffer) {
+      renderBinaryFrame(event.data);
+      return;
+    }
+
     try {
       const msg = JSON.parse(event.data);
       handleMessage(msg);
-    } catch (e) {
-      console.error('Parse error:', e);
-    }
+    } catch (e) {}
   };
 
   ws.onclose = () => {
     connBar.className = 'connection-bar disconnected';
-    connBar.textContent = '⚠ Соединение потеряно. Переподключение...';
-    scheduleReconnect();
-  };
-
-  ws.onerror = () => {
-    connBar.className = 'connection-bar disconnected';
+    setTimeout(connectWebSocket, 3000);
   };
 }
 
-function scheduleReconnect() {
-  if (reconnectTimer) clearTimeout(reconnectTimer);
-  reconnectAttempt++;
-  const delay = Math.min(1000 * Math.pow(2, reconnectAttempt), 30000);
-  const connBar = document.getElementById('connectionBar');
-  connBar.className = 'connection-bar reconnecting';
-  connBar.textContent = `↻ Переподключение через ${Math.round(delay/1000)}с (попытка ${reconnectAttempt})...`;
-  reconnectTimer = setTimeout(connectWebSocket, delay);
+// Аппаратная отрисовка на Canvas через GPU
+function renderBinaryFrame(buffer) {
+  const view = new Uint8Array(buffer);
+  const idLen = view[0];
+  const cameraId = new TextDecoder().decode(view.subarray(1, 1 + idLen));
+  const jpegBytes = view.subarray(1 + idLen);
+
+  const canvas = document.getElementById(`canvas-${cameraId}`);
+  if (!canvas) return;
+
+  const blob = new Blob([jpegBytes], { type: 'image/jpeg' });
+
+  // createImageBitmap декодирует картинку в фоновом потоке GPU
+  createImageBitmap(blob).then(bitmap => {
+    if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+    }
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bitmap, 0, 0);
+    bitmap.close(); // Очищаем GPU память
+
+    canvas.style.display = 'block';
+    const ph = document.getElementById(`ph-${cameraId}`);
+    if (ph) ph.style.display = 'none';
+
+    const timeEl = document.getElementById(`time-${cameraId}`);
+    if (timeEl) timeEl.textContent = new Date().toLocaleTimeString();
+  }).catch(() => {});
 }
 
 function handleMessage(msg) {
   switch (msg.type) {
     case 'camera-list':
       cameras = {};
-      msg.cameras.forEach(cam => {
-        cameras[cam.id] = cam;
-      });
+      msg.cameras.forEach(cam => cameras[cam.id] = cam);
       renderCameraList();
       renderGrid();
-      Object.values(cameras).forEach(cam => {
-        if (cam.status === 'online') {
-          wsSend({ type: 'subscribe', cameraId: cam.id });
-        }
-      });
+      subscribeAll();
       break;
 
     case 'camera-online':
@@ -92,22 +104,6 @@ function handleMessage(msg) {
       }
       break;
 
-    case 'camera-updated':
-      cameras[msg.camera.id] = msg.camera;
-      renderCameraList();
-      break;
-
-    case 'camera-removed':
-      delete cameras[msg.cameraId];
-      renderCameraList();
-      renderGrid();
-      loadStats();
-      break;
-
-    case 'video-frame':
-      updateVideoFrame(msg.cameraId, msg.frame, msg.timestamp);
-      break;
-
     case 'alert':
       handleAlert(msg.alert);
       break;
@@ -125,22 +121,19 @@ function renderCameraList() {
   const cams = Object.values(cameras);
 
   if (cams.length === 0) {
-    list.innerHTML = `<div class="empty-state" style="padding: 40px 20px"><p>Нет камер.</p></div>`;
+    list.innerHTML = `<div class="empty-state" style="padding:40px 20px"><p>Нет камер.</p></div>`;
     return;
   }
 
   list.innerHTML = cams.map(cam => `
-    <div class="camera-item" 
-         onclick="focusCamera('${cam.id}')"
-         data-cam-id="${cam.id}">
-      <div class="cam-status" style="background: ${cam.status === 'online' ? 'var(--success)' : 'var(--danger)'}; 
-           box-shadow: ${cam.status === 'online' ? '0 0 8px var(--success)' : 'none'}"></div>
+    <div class="camera-item" data-cam-id="${cam.id}">
+      <div class="cam-status" style="background:${cam.status === 'online' ? 'var(--success)' : 'var(--danger)'}"></div>
       <div class="cam-info">
         <div class="cam-name">${escapeHtml(cam.name)}</div>
         <div class="cam-location">${escapeHtml(cam.location)}</div>
       </div>
       <div class="cam-actions">
-        <button class="btn btn-sm btn-icon" onclick="event.stopPropagation(); openEditCamera('${cam.id}')">⚙</button>
+        <button class="btn btn-sm btn-icon" onclick="openEditCamera('${cam.id}')">⚙</button>
       </div>
     </div>
   `).join('');
@@ -152,6 +145,7 @@ function setGridLayout(n) {
   grid.className = `view-grid grid-${n}`;
   document.getElementById('gridInfo').textContent = `Сетка: ${Math.sqrt(n)|0}×${Math.sqrt(n)|0}`;
   renderGrid();
+  subscribeAll();
 }
 
 function renderGrid() {
@@ -160,7 +154,7 @@ function renderGrid() {
 
   if (cams.length === 0) {
     grid.innerHTML = `
-      <div class="empty-state" id="emptyState">
+      <div class="empty-state">
         <div class="empty-icon">📹</div>
         <h3>Нет активных камер</h3>
         <button class="btn btn-primary" onclick="openGenerateLink()">Подключить камеру</button>
@@ -183,10 +177,10 @@ function renderGrid() {
       </div>
       <div class="video-cell-body">
         <div class="motion-indicator" id="motion-${cam.id}"></div>
-        <img id="frame-${cam.id}" src="" style="display:none">
+        <canvas id="canvas-${cam.id}" style="width:100%; height:100%; object-fit:contain; display:none;"></canvas>
         <div class="video-placeholder" id="ph-${cam.id}">
           <div class="ph-icon">📷</div>
-          <span>${cam.status === 'online' ? 'Ожидание видео...' : 'Камера оффлайн'}</span>
+          <span>${cam.status === 'online' ? 'Подключение потока...' : 'Камера оффлайн'}</span>
         </div>
       </div>
       <div class="video-cell-footer">
@@ -200,35 +194,11 @@ function renderGrid() {
   `).join('');
 }
 
-function updateVideoFrame(cameraId, frame, timestamp) {
-  if (!frame) return; // Защита от пустых кадров (убирает иконку сломанной картинки)
-  
-  const img = document.getElementById(`frame-${cameraId}`);
-  const ph = document.getElementById(`ph-${cameraId}`);
-
-  if (img) {
-    img.src = frame;
-    img.style.display = 'block';
-    if (ph) ph.style.display = 'none';
-  }
-
-  const timeEl = document.getElementById(`time-${cameraId}`);
-  if (timeEl) {
-    const d = new Date(timestamp);
-    timeEl.textContent = d.toLocaleTimeString();
-  }
-
-  const fsImg = document.getElementById('fullscreenImg');
-  if (fsImg && fsImg.dataset.cameraId === cameraId) {
-    fsImg.src = frame;
-  }
-}
-
 function updateCellStatus(cameraId, status) {
   const ph = document.getElementById(`ph-${cameraId}`);
-  const img = document.getElementById(`frame-${cameraId}`);
+  const canvas = document.getElementById(`canvas-${cameraId}`);
   if (status === 'offline') {
-    if (img) img.style.display = 'none';
+    if (canvas) canvas.style.display = 'none';
     if (ph) {
       ph.style.display = 'flex';
       ph.querySelector('span').textContent = 'Камера оффлайн';
@@ -237,48 +207,26 @@ function updateCellStatus(cameraId, status) {
 }
 
 function openFullscreen(cameraId) {
+  const canvas = document.getElementById(`canvas-${cameraId}`);
+  if (!canvas || canvas.style.display === 'none') return;
   const overlay = document.getElementById('fullscreenOverlay');
   const img = document.getElementById('fullscreenImg');
-  const frameImg = document.getElementById(`frame-${cameraId}`);
-
-  if (frameImg && frameImg.src && frameImg.style.display !== 'none') {
-    img.src = frameImg.src;
-    img.dataset.cameraId = cameraId;
-    overlay.classList.add('open');
-  }
+  img.src = canvas.toDataURL('image/jpeg');
+  overlay.classList.add('open');
 }
 
 function closeFullscreen() {
   document.getElementById('fullscreenOverlay').classList.remove('open');
-  document.getElementById('fullscreenImg').dataset.cameraId = '';
-}
-
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') {
-    closeFullscreen();
-    closeEditModal();
-    closeLinkModal();
-  }
-});
-
-function focusCamera(cameraId) {
-  document.querySelectorAll('.camera-item').forEach(el => el.classList.remove('active'));
-  const item = document.querySelector(`[data-cam-id="${cameraId}"]`);
-  if (item) item.classList.add('active');
-  // Можно добавить логику для одиночного просмотра
 }
 
 function subscribeAll() {
   wsSend({ type: 'subscribe-all' });
-  showToast('Запрошено видео со всех камер', 'info');
 }
 
 function unsubscribeAll() {
   wsSend({ type: 'unsubscribe-all' });
-  showToast('Остановлен прием видео', 'info');
 }
 
-// ===== GENERATE LINK =====
 function openGenerateLink() {
   document.getElementById('linkStep1').style.display = 'block';
   document.getElementById('linkStep2').style.display = 'none';
@@ -301,28 +249,18 @@ async function generateLink() {
       body: JSON.stringify({ name, location })
     });
     const data = await resp.json();
-
     currentLink = data.url;
     document.getElementById('linkResult').value = data.url;
     document.getElementById('linkStep1').style.display = 'none';
     document.getElementById('linkStep2').style.display = 'block';
-  } catch (e) {
-    showToast('Ошибка генерации', 'error');
-  }
+  } catch (e) {}
 }
 
 function copyLink() {
   const input = document.getElementById('linkResult');
   input.select();
-  input.setSelectionRange(0, 99999);
-  try {
-    navigator.clipboard.writeText(currentLink).then(() => {
-      showToast('Ссылка скопирована в буфер', 'success');
-    });
-  } catch {
-    document.execCommand('copy');
-    showToast('Ссылка скопирована', 'success');
-  }
+  navigator.clipboard.writeText(currentLink);
+  showToast('Ссылка скопирована', 'success');
 }
 
 function showQR() {
@@ -343,7 +281,6 @@ function openEditCamera(cameraId) {
 
 function closeEditModal() {
   document.getElementById('editModal').classList.remove('open');
-  editingCameraId = null;
 }
 
 async function saveEditCamera() {
@@ -352,39 +289,25 @@ async function saveEditCamera() {
     name: document.getElementById('editName').value,
     location: document.getElementById('editLocation').value
   };
-  try {
-    const resp = await fetch(`/api/cameras/${editingCameraId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-    if (resp.ok) {
-      Object.assign(cameras[editingCameraId], data);
-      renderCameraList();
-      renderGrid();
-      showToast('Настройки сохранены', 'success');
-      closeEditModal();
-    }
-  } catch (e) {}
+  await fetch(`/api/cameras/${editingCameraId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  closeEditModal();
 }
 
 async function deleteEditCamera() {
-  if (!editingCameraId) return;
-  if (!confirm('Удалить камеру?')) return;
-  try {
-    await fetch(`/api/cameras/${editingCameraId}`, { method: 'DELETE' });
-    closeEditModal();
-  } catch (e) {}
+  if (!editingCameraId || !confirm('Удалить камеру?')) return;
+  await fetch(`/api/cameras/${editingCameraId}`, { method: 'DELETE' });
+  closeEditModal();
 }
 
 function takeSnapshot(cameraId) {
-  const img = document.getElementById(`frame-${cameraId}`);
-  if (!img || !img.src || img.style.display === 'none') {
-    showToast('Нет кадра для снимка', 'warning');
-    return;
-  }
+  const canvas = document.getElementById(`canvas-${cameraId}`);
+  if (!canvas || canvas.style.display === 'none') return;
   const a = document.createElement('a');
-  a.href = img.src;
+  a.href = canvas.toDataURL('image/jpeg');
   a.download = `snapshot_${cameraId}_${Date.now()}.jpg`;
   a.click();
 }
@@ -397,7 +320,7 @@ function toggleAlerts() {
 
 async function loadAlerts() {
   try {
-    const resp = await fetch('/api/alerts?limit=50');
+    const resp = await fetch('/api/alerts');
     const alerts = await resp.json();
     renderAlerts(alerts);
   } catch (e) {}
@@ -410,10 +333,10 @@ function renderAlerts(alerts) {
     return;
   }
   list.innerHTML = alerts.map(a => `
-    <div class="alert-item ${a.read ? '' : 'unread'}" onclick="markAlertRead('${a.id}', this)">
+    <div class="alert-item">
       <div class="alert-type">⚠ ${a.type}</div>
       <div class="alert-msg">${escapeHtml(a.message)}</div>
-      <div class="alert-time">${new Date(a.timestamp).toLocaleString()}</div>
+      <div class="alert-time">${new Date(a.timestamp).toLocaleTimeString()}</div>
     </div>
   `).join('');
 }
@@ -425,24 +348,11 @@ function handleAlert(alert) {
     motionEl.classList.add('active');
     setTimeout(() => motionEl.classList.remove('active'), 3000);
   }
-  const statEl = document.getElementById('statAlerts');
-  statEl.textContent = parseInt(statEl.textContent) + 1;
-  if (alertsPanelOpen) loadAlerts();
-}
-
-async function markAlertRead(alertId, el) {
-  try {
-    await fetch(`/api/alerts/${alertId}/read`, { method: 'PUT' });
-    el.classList.remove('unread');
-  } catch (e) {}
 }
 
 async function clearAlerts() {
-  try {
-    await fetch('/api/alerts', { method: 'DELETE' });
-    loadAlerts();
-    document.getElementById('statAlerts').textContent = '0';
-  } catch (e) {}
+  await fetch('/api/alerts', { method: 'DELETE' });
+  loadAlerts();
 }
 
 async function loadStats() {
@@ -451,19 +361,17 @@ async function loadStats() {
     const stats = await resp.json();
     document.getElementById('statOnline').textContent = stats.onlineCameras;
     document.getElementById('statTotal').textContent = stats.totalCameras;
-    document.getElementById('statAlerts').textContent = stats.unreadAlerts;
+    document.getElementById('statAlerts').textContent = stats.totalAlerts;
   } catch (e) {}
 }
 
 function refreshCameras() {
-  fetch('/api/cameras')
-    .then(r => r.json())
-    .then(list => {
-      cameras = {};
-      list.forEach(cam => cameras[cam.id] = cam);
-      renderCameraList();
-      renderGrid();
-    });
+  fetch('/api/cameras').then(r => r.json()).then(list => {
+    cameras = {};
+    list.forEach(cam => cameras[cam.id] = cam);
+    renderCameraList();
+    renderGrid();
+  });
 }
 
 function showToast(message, type = 'info') {
@@ -480,6 +388,5 @@ function showToast(message, type = 'info') {
 }
 
 function escapeHtml(str) {
-  if (!str) return '';
-  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return str ? str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
 }
