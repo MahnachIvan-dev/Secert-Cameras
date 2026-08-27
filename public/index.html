@@ -46,10 +46,7 @@
       <button class="btn btn-sm" onclick="refreshCameras()">↻</button>
     </div>
     <div class="camera-list" id="cameraList">
-      <div class="empty-state" style="padding: 40px 20px">
-        <div class="empty-icon">📷</div>
-        <p>Нет камер.</p>
-      </div>
+      <div class="empty-state" style="padding: 40px 20px"><p>Нет камер.</p></div>
     </div>
   </aside>
 
@@ -59,7 +56,6 @@
         <button class="btn btn-sm" onclick="setGridLayout(1)" title="1 камера">▪</button>
         <button class="btn btn-sm" onclick="setGridLayout(4)" title="2x2">⊞</button>
         <button class="btn btn-sm" onclick="setGridLayout(9)" title="3x3">⊞</button>
-        <button class="btn btn-sm" onclick="setGridLayout(16)" title="4x4">⊞</button>
       </div>
       <div class="toolbar-divider"></div>
       <div class="toolbar-group">
@@ -88,9 +84,7 @@
       </div>
     </div>
     <div class="alerts-list" id="alertsList">
-      <div class="empty-state" style="padding:40px 20px">
-        <p>Нет алертов</p>
-      </div>
+      <div class="empty-state" style="padding:40px 20px"><p>Нет алертов</p></div>
     </div>
   </aside>
 </div>
@@ -103,7 +97,7 @@
 <div class="modal-overlay" id="editModal">
   <div class="modal">
     <div class="modal-title">
-      <span id="editModalTitle">Настройки камеры</span>
+      <span>Настройки камеры</span>
       <button class="btn btn-icon" onclick="closeEditModal()">✕</button>
     </div>
     <div class="form-group">
@@ -114,25 +108,6 @@
       <label class="form-label">Расположение</label>
       <input class="form-input" id="editLocation" type="text">
     </div>
-    <div class="form-group">
-      <label class="form-label">FPS</label>
-      <input class="form-input" id="editFps" type="number" min="1" max="60">
-    </div>
-    <div class="form-group">
-      <label class="form-label">Разрешение</label>
-      <select class="form-select" id="editResolution">
-        <option value="640x480">640×480</option>
-        <option value="1280x720">1280×720 HD</option>
-        <option value="1920x1080">1920×1080 Full HD</option>
-      </select>
-    </div>
-    <div class="setting-row">
-      <span class="setting-label">Запись</span>
-      <label class="toggle-switch">
-        <input type="checkbox" id="editRecording">
-        <span class="toggle-slider"></span>
-      </label>
-    </div>
     <div class="form-actions">
       <button class="btn" onclick="closeEditModal()">Отмена</button>
       <button class="btn btn-danger" onclick="deleteEditCamera()">Удалить</button>
@@ -141,46 +116,36 @@
   </div>
 </div>
 
-<!-- Модальное окно для создания ссылки -->
 <div class="modal-overlay" id="linkModal">
   <div class="modal">
     <div class="modal-title">
-      <span>🔗 Ссылка на подключение камеры</span>
+      <span>🔗 Ссылка на камеру</span>
       <button class="btn btn-icon" onclick="closeLinkModal()">✕</button>
     </div>
-
     <div id="linkStep1">
-      <p style="color:var(--text-secondary); margin-bottom:16px; font-size:13px;">
-        Заполните данные — получите ссылку, которую можно открыть на телефоне или планшете, чтобы превратить его в камеру.
-      </p>
       <div class="form-group">
         <label class="form-label">Название камеры</label>
-        <input class="form-input" id="linkName" type="text" placeholder="Например: Прихожая" value="Camera">
+        <input class="form-input" id="linkName" type="text" value="Camera">
       </div>
       <div class="form-group">
         <label class="form-label">Расположение</label>
-        <input class="form-input" id="linkLocation" type="text" placeholder="Например: 1 этаж" value="Комната">
+        <input class="form-input" id="linkLocation" type="text" value="Комната">
       </div>
       <div class="form-actions">
         <button class="btn" onclick="closeLinkModal()">Отмена</button>
-        <button class="btn btn-primary" onclick="generateLink()">🔗 Сгенерировать</button>
+        <button class="btn btn-primary" onclick="generateLink()">Сгенерировать</button>
       </div>
     </div>
-
     <div id="linkStep2" style="display:none;">
-      <p style="color:var(--text-secondary); margin-bottom:12px; font-size:13px;">
-        Откройте эту ссылку на устройстве, которое станет камерой:
-      </p>
       <div class="form-group">
-        <input class="form-input" id="linkResult" type="text" readonly onclick="this.select()" style="font-size:12px;">
+        <input class="form-input" id="linkResult" type="text" readonly style="font-size:12px;">
       </div>
       <div id="qrContainer" style="text-align:center; margin: 16px 0; padding: 16px; background: white; border-radius: var(--radius); display:none;">
         <img id="qrImage" src="" alt="QR Code" style="max-width: 200px;">
-        <p style="color:#333; font-size:12px; margin-top:8px;">Отсканируйте телефоном</p>
       </div>
       <div class="form-actions">
         <button class="btn" onclick="closeLinkModal()">Закрыть</button>
-        <button class="btn" onclick="showQR()">📱 Показать QR</button>
+        <button class="btn" onclick="showQR()">📱 QR</button>
         <button class="btn btn-primary" onclick="copyLink()">📋 Копировать</button>
       </div>
     </div>
