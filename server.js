@@ -15,7 +15,7 @@ const cameras = new Map();
 const viewers = new Map();
 const cameraTokens = new Map();
 
-// REST API
+// API ссылки
 app.post('/api/generate-link', (req, res) => {
   const { name, location } = req.body;
   const token = uuidv4();
@@ -34,7 +34,7 @@ app.get('/api/cameras', (req, res) => {
   res.json(list);
 });
 
-// WEBSOCKET SIGNALING
+// WebSocket
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url, 'http://localhost');
   const role = url.searchParams.get('role');
@@ -48,21 +48,19 @@ wss.on('connection', (ws, req) => {
     const cam = { id, name, location, status: 'online', ws };
     cameras.set(id, cam);
 
+    console.log(`📷 Camera online: ${name} (${id})`);
     ws.send(JSON.stringify({ type: 'registered', id }));
     broadcastToViewers({ type: 'camera-online', camera: { id, name, location, status: 'online' } });
 
-    ws.on('message', (data) => {
-      try {
-        const msg = JSON.parse(data.toString());
-        // Пересылаем сигналы WebRTC конкретному зрителю
-        if (msg.targetViewerId) {
-          viewers.forEach((v, vWs) => {
-            if (v.id === msg.targetViewerId && vWs.readyState === 1) {
-              vWs.send(JSON.stringify({ ...msg, cameraId: id }));
-            }
-          });
-        }
-      } catch (e) {}
+    ws.on('message', (data, isBinary) => {
+      if (isBinary) {
+        // Пересылаем бинарный кадр всем зрителям мгновенно
+        viewers.forEach((v, vWs) => {
+          if (v.subscribed.has(id) && vWs.readyState === 1 && vWs.bufferedAmount === 0) {
+            vWs.send(data, { binary: true });
+          }
+        });
+      }
     });
 
     ws.on('close', () => {
@@ -73,21 +71,20 @@ wss.on('connection', (ws, req) => {
   } else {
     // Viewer
     const viewerId = uuidv4();
-    viewers.set(ws, { id: viewerId });
+    const viewerInfo = { id: viewerId, subscribed: new Set() };
+    viewers.set(ws, viewerInfo);
 
     const camList = [];
     cameras.forEach(c => camList.push({ id: c.id, name: c.name, location: c.location, status: c.status }));
-    ws.send(JSON.stringify({ type: 'camera-list', cameras: camList, viewerId }));
+    ws.send(JSON.stringify({ type: 'camera-list', cameras: camList }));
 
     ws.on('message', (data) => {
       try {
         const msg = JSON.parse(data.toString());
-        // Пересылаем сигналы WebRTC конкретной камере
-        if (msg.cameraId && cameras.has(msg.cameraId)) {
-          const cam = cameras.get(msg.cameraId);
-          if (cam.ws && cam.ws.readyState === 1) {
-            cam.ws.send(JSON.stringify({ ...msg, viewerId }));
-          }
+        if (msg.type === 'subscribe-all') {
+          cameras.forEach((_, id) => viewerInfo.subscribed.add(id));
+        } else if (msg.type === 'subscribe') {
+          viewerInfo.subscribed.add(msg.cameraId);
         }
       } catch (e) {}
     });
@@ -102,6 +99,4 @@ function broadcastToViewers(msg) {
 }
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`🎥 WebRTC Server running on port ${PORT}`);
-});
+server.listen(PORT, '0.0.0.0', () => console.log(`🎥 Server on port ${PORT}`));
