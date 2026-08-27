@@ -1,32 +1,19 @@
 let ws = null;
 let stream = null;
 let cameraId = null;
-const peerConnections = {}; // viewerId -> RTCPeerConnection
-
-const rtcConfig = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' }
-  ]
-};
 
 document.addEventListener('DOMContentLoaded', () => {
-  const params = new URLSearchParams(window.location.search);
-  if (params.get('autostart') === '1') {
-    setTimeout(startCamera, 500);
-  }
+  startCamera();
 });
 
 async function startCamera() {
   const params = new URLSearchParams(window.location.search);
   const name = params.get('name') || 'Camera';
-  const location = params.get('location') || 'Room';
   const token = params.get('token');
 
   try {
-    // Захватываем полноценный видеопоток высокой четкости HD (30-60 FPS)
     stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+      video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 20 } },
       audio: false
     });
 
@@ -34,78 +21,68 @@ async function startCamera() {
     video.srcObject = stream;
     await video.play();
 
-    document.getElementById('settingsSection').style.display = 'none';
-    document.getElementById('previewSection').style.display = 'block';
-
-    connectWS(name, location, token);
+    connectWS(name, token);
   } catch (e) {
-    alert('Ошибка доступа к камере: ' + e.message);
+    document.getElementById('status').textContent = 'Ошибка доступа к камере: ' + e.message;
   }
 }
 
-function connectWS(name, location, token) {
+function connectWS(name, token) {
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
-  let url = `${protocol}://${location.host}?role=camera&name=${encodeURIComponent(name)}&location=${encodeURIComponent(location)}`;
+  let url = `${protocol}://${location.host}?role=camera&name=${encodeURIComponent(name)}`;
   if (token) url += `&token=${token}`;
 
   ws = new WebSocket(url);
 
-  ws.onmessage = async (event) => {
+  ws.onopen = () => {
+    document.getElementById('status').textContent = '● Трансляция идет';
+    document.getElementById('status').style.color = 'var(--success)';
+    startStreaming();
+  };
+
+  ws.onmessage = (e) => {
     try {
-      const msg = JSON.parse(event.data);
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'registered') cameraId = msg.id;
+    } catch(err) {}
+  };
 
-      switch (msg.type) {
-        case 'registered':
-          cameraId = msg.id;
-          break;
-
-        case 'request-stream':
-          createPeerConnection(msg.viewerId);
-          break;
-
-        case 'answer':
-          if (peerConnections[msg.viewerId]) {
-            await peerConnections[msg.viewerId].setRemoteDescription(new RTCSessionDescription(msg.sdp));
-          }
-          break;
-
-        case 'candidate':
-          if (peerConnections[msg.viewerId] && msg.candidate) {
-            await peerConnections[msg.viewerId].addIceCandidate(new RTCIceCandidate(msg.candidate));
-          }
-          break;
-      }
-    } catch (e) {}
+  ws.onclose = () => {
+    document.getElementById('status').textContent = 'Отключено. Переподключение...';
+    document.getElementById('status').style.color = 'var(--danger)';
+    setTimeout(() => connectWS(name, token), 2000);
   };
 }
 
-async function createPeerConnection(viewerId) {
-  if (peerConnections[viewerId]) peerConnections[viewerId].close();
+function startStreaming() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 640;
+  canvas.height = 480;
+  const ctx = canvas.getContext('2d');
+  const video = document.getElementById('videoPreview');
+  const encoder = new TextEncoder();
 
-  const pc = new RTCPeerConnection(rtcConfig);
-  peerConnections[viewerId] = pc;
+  setInterval(() => {
+    if (!ws || ws.readyState !== WebSocket.OPEN || !cameraId || ws.bufferedAmount > 0) return;
 
-  // Добавляем треки трансляции камеры
-  stream.getTracks().forEach(track => pc.addTrack(track, stream));
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-  pc.onicecandidate = (event) => {
-    if (event.candidate) {
-      ws.send(JSON.stringify({
-        type: 'candidate',
-        targetViewerId: viewerId,
-        candidate: event.candidate
-      }));
-    }
-  };
+    canvas.toBlob((blob) => {
+      if (!blob || ws.bufferedAmount > 0) return;
 
-  const offer = await pc.createOffer();
-  await pc.setLocalDescription(offer);
+      blob.arrayBuffer().then(jpegBuffer => {
+        const idBytes = encoder.encode(cameraId);
+        const packet = new Uint8Array(1 + idBytes.length + jpegBuffer.byteLength);
 
-  ws.send(JSON.stringify({
-    type: 'offer',
-    targetViewerId: viewerId,
-    sdp: offer
-  }));
+        packet[0] = idBytes.length;
+        packet.set(idBytes, 1);
+        packet.set(new Uint8Array(jpegBuffer), 1 + idBytes.length);
+
+        if (ws.readyState === WebSocket.OPEN && ws.bufferedAmount === 0) {
+          ws.send(packet.buffer);
+        }
+      });
+    }, 'image/jpeg', 0.4); // Качество 40% — баланс идеальной плавности и четкости
+
+  }, 1000 / 20); // 20 FPS
 }
-
-window.startCamera = startCamera;
