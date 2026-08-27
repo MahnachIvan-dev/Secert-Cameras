@@ -3,14 +3,33 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Камера</title>
+  <title>Камера видеонаблюдения</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<div class="camera-page" style="padding:20px; text-align:center;">
-  <h2>🎥 Трансляция камеры</h2>
-  <div id="status" style="margin:10px; font-weight:bold; color:var(--warning);">Подключение...</div>
-  <video id="videoPreview" autoplay playsinline muted style="width:100%; max-width:500px; border-radius:10px; background:#000;"></video>
+<div class="camera-page" style="padding:20px; max-width:600px; margin:0 auto; text-align:center;">
+  
+  <div class="header" style="border-radius:var(--radius); margin-bottom:20px;">
+    <div class="header-logo">
+      <div class="icon">📷</div>
+      <span id="camTitle">КАМЕРА</span>
+    </div>
+    <div id="status" class="status-indicator status-connecting">
+      ◌ Подключение...
+    </div>
+  </div>
+
+  <div class="camera-preview">
+    <video id="videoPreview" autoplay playsinline muted style="width:100%; height:100%; object-fit:cover;"></video>
+  </div>
+
+  <div class="control-card" style="margin-top:20px;">
+    <div class="setting-row">
+      <span class="setting-label">Кадров отправлено</span>
+      <span class="setting-value" id="frameCount">0</span>
+    </div>
+  </div>
+
 </div>
 <script src="camera.js"></script>
 </body>
