@@ -3,115 +3,34 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Видеонаблюдение — Панель управления</title>
+  <title>Видеонаблюдение</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-
-<div class="connection-bar" id="connectionBar">
-  ⚠ Соединение с сервером потеряно. Переподключение...
-</div>
 
 <header class="header">
   <div class="header-logo">
     <div class="icon">🎥</div>
     <span>SURVEILLANCE</span>
   </div>
-
-  <div class="header-stats">
-    <div class="header-stat">
-      <span class="dot dot-online"></span>
-      <span id="statOnline">0</span> онлайн
-    </div>
-    <div class="header-stat">
-      <span class="dot dot-offline"></span>
-      <span id="statTotal">0</span> всего
-    </div>
-    <div class="header-stat" id="alertStat" style="cursor:pointer">
-      <span class="dot dot-alert"></span>
-      <span id="statAlerts">0</span> алертов
-    </div>
-  </div>
-
   <div class="header-actions">
-    <button class="btn" onclick="toggleAlerts()" title="Алерты">🔔</button>
     <button class="btn btn-primary" onclick="openGenerateLink()">+ Ссылка на камеру</button>
   </div>
 </header>
 
 <div class="main-container">
   <aside class="sidebar">
-    <div class="sidebar-header">
-      <span class="sidebar-title">Камеры</span>
-      <button class="btn btn-sm" onclick="refreshCameras()">↻</button>
-    </div>
-    <div class="camera-list" id="cameraList">
-      <div class="empty-state" style="padding: 40px 20px"><p>Нет камер.</p></div>
-    </div>
+    <div class="sidebar-header"><span class="sidebar-title">Камеры</span></div>
+    <div class="camera-list" id="cameraList"></div>
   </aside>
 
   <div class="content">
-    <div class="toolbar">
-      <div class="toolbar-group">
-        <button class="btn btn-sm" onclick="setGridLayout(1)" title="1 камера">▪</button>
-        <button class="btn btn-sm" onclick="setGridLayout(4)" title="2x2">⊞</button>
-        <button class="btn btn-sm" onclick="setGridLayout(9)" title="3x3">⊞</button>
-      </div>
-      <div class="toolbar-divider"></div>
-      <div class="toolbar-group">
-        <button class="btn btn-sm btn-success" onclick="subscribeAll()">▶ Все</button>
-        <button class="btn btn-sm btn-danger" onclick="unsubscribeAll()">■ Стоп</button>
-      </div>
-      <div class="toolbar-divider"></div>
-      <span style="font-size:12px; color:var(--text-muted)" id="gridInfo">Сетка: 2×2</span>
-    </div>
-
     <div class="view-grid grid-4" id="viewGrid">
-      <div class="empty-state" id="emptyState">
+      <div class="empty-state">
         <div class="empty-icon">📹</div>
         <h3>Нет активных камер</h3>
         <button class="btn btn-primary" onclick="openGenerateLink()">Подключить камеру</button>
       </div>
-    </div>
-  </div>
-
-  <aside class="alerts-panel" id="alertsPanel">
-    <div class="alerts-header">
-      <span class="sidebar-title">🔔 Алерты</span>
-      <div>
-        <button class="btn btn-sm" onclick="clearAlerts()">Очистить</button>
-        <button class="btn btn-sm" onclick="toggleAlerts()">✕</button>
-      </div>
-    </div>
-    <div class="alerts-list" id="alertsList">
-      <div class="empty-state" style="padding:40px 20px"><p>Нет алертов</p></div>
-    </div>
-  </aside>
-</div>
-
-<div class="fullscreen-overlay" id="fullscreenOverlay" onclick="closeFullscreen()">
-  <button class="btn fullscreen-close" onclick="closeFullscreen()">✕ Закрыть</button>
-  <img id="fullscreenImg" src="" alt="">
-</div>
-
-<div class="modal-overlay" id="editModal">
-  <div class="modal">
-    <div class="modal-title">
-      <span>Настройки камеры</span>
-      <button class="btn btn-icon" onclick="closeEditModal()">✕</button>
-    </div>
-    <div class="form-group">
-      <label class="form-label">Название</label>
-      <input class="form-input" id="editName" type="text">
-    </div>
-    <div class="form-group">
-      <label class="form-label">Расположение</label>
-      <input class="form-input" id="editLocation" type="text">
-    </div>
-    <div class="form-actions">
-      <button class="btn" onclick="closeEditModal()">Отмена</button>
-      <button class="btn btn-danger" onclick="deleteEditCamera()">Удалить</button>
-      <button class="btn btn-primary" onclick="saveEditCamera()">Сохранить</button>
     </div>
   </div>
 </div>
@@ -124,35 +43,23 @@
     </div>
     <div id="linkStep1">
       <div class="form-group">
-        <label class="form-label">Название камеры</label>
-        <input class="form-input" id="linkName" type="text" value="Camera">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Расположение</label>
-        <input class="form-input" id="linkLocation" type="text" value="Комната">
+        <label class="form-label">Название</label>
+        <input class="form-input" id="linkName" type="text" value="Камера">
       </div>
       <div class="form-actions">
-        <button class="btn" onclick="closeLinkModal()">Отмена</button>
         <button class="btn btn-primary" onclick="generateLink()">Сгенерировать</button>
       </div>
     </div>
     <div id="linkStep2" style="display:none;">
       <div class="form-group">
-        <input class="form-input" id="linkResult" type="text" readonly style="font-size:12px;">
-      </div>
-      <div id="qrContainer" style="text-align:center; margin: 16px 0; padding: 16px; background: white; border-radius: var(--radius); display:none;">
-        <img id="qrImage" src="" alt="QR Code" style="max-width: 200px;">
+        <input class="form-input" id="linkResult" type="text" readonly>
       </div>
       <div class="form-actions">
-        <button class="btn" onclick="closeLinkModal()">Закрыть</button>
-        <button class="btn" onclick="showQR()">📱 QR</button>
         <button class="btn btn-primary" onclick="copyLink()">📋 Копировать</button>
       </div>
     </div>
   </div>
 </div>
-
-<div class="toast-container" id="toastContainer"></div>
 
 <script src="main.js"></script>
 </body>
