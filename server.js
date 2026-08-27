@@ -6,57 +6,59 @@ const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({ server, maxPayload: 50 * 1024 * 1024 }); // Увеличил лимит до 50мб на всякий случай
 
 app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
-// ===== Хранилище данных =====
-const cameras = new Map();       // id -> { id, name, location, status, ws, lastSeen, resolution, fps, recording }
-const viewers = new Map();       // ws -> { id, subscribedTo: Set }
-const recordings = new Map();    // cameraId -> [{ id, start, end, size, thumbnail }]
-const alerts = [];               // [{ id, cameraId, type, message, timestamp, read }]
-const motionZones = new Map();   // cameraId -> [{ x, y, w, h, sensitivity }]
-const snapshots = new Map();     // cameraId -> base64 последний кадр
+// ===== Хранилище =====
+const cameras = new Map();
+const viewers = new Map();
+const recordings = new Map();
+const alerts = [];
+const motionZones = new Map();
+const snapshots = new Map();
+const cameraTokens = new Map(); // token -> { name, location, createdAt }
 
 // ===== REST API =====
 
-// Получить все камеры
+// Генерация ссылки на камеру
+app.post('/api/generate-link', (req, res) => {
+  const { name, location } = req.body;
+  const token = uuidv4();
+  cameraTokens.set(token, {
+    name: name || 'New Camera',
+    location: location || 'Unknown',
+    createdAt: Date.now()
+  });
+
+  const protocol = req.secure ? 'https' : 'http';
+  const host = req.get('host');
+  const url = `${protocol}://${host}/camera.html?token=${token}&name=${encodeURIComponent(name || '')}&location=${encodeURIComponent(location || '')}&autostart=1`;
+
+  res.json({ token, url });
+});
+
+app.get('/api/token/:token', (req, res) => {
+  const info = cameraTokens.get(req.params.token);
+  if (!info) return res.status(404).json({ error: 'Invalid token' });
+  res.json(info);
+});
+
 app.get('/api/cameras', (req, res) => {
   const list = [];
   cameras.forEach((cam) => {
-    list.push({
-      id: cam.id,
-      name: cam.name,
-      location: cam.location,
-      status: cam.status,
-      lastSeen: cam.lastSeen,
-      resolution: cam.resolution,
-      fps: cam.fps,
-      recording: cam.recording,
-      hasSnapshot: snapshots.has(cam.id)
-    });
+    list.push(sanitizeCam(cam));
   });
   res.json(list);
 });
 
-// Получить одну камеру
 app.get('/api/cameras/:id', (req, res) => {
   const cam = cameras.get(req.params.id);
   if (!cam) return res.status(404).json({ error: 'Camera not found' });
-  res.json({
-    id: cam.id,
-    name: cam.name,
-    location: cam.location,
-    status: cam.status,
-    lastSeen: cam.lastSeen,
-    resolution: cam.resolution,
-    fps: cam.fps,
-    recording: cam.recording
-  });
+  res.json(sanitizeCam(cam));
 });
 
-// Обновить камеру
 app.put('/api/cameras/:id', (req, res) => {
   const cam = cameras.get(req.params.id);
   if (!cam) return res.status(404).json({ error: 'Camera not found' });
@@ -67,16 +69,13 @@ app.put('/api/cameras/:id', (req, res) => {
   if (fps) cam.fps = fps;
   if (resolution) cam.resolution = resolution;
 
-  // Отправить камере обновлённые настройки
   if (cam.ws && cam.ws.readyState === 1) {
     cam.ws.send(JSON.stringify({ type: 'settings-update', settings: { recording: cam.recording, fps: cam.fps, resolution: cam.resolution } }));
   }
-
   broadcastToViewers({ type: 'camera-updated', camera: sanitizeCam(cam) });
   res.json({ success: true });
 });
 
-// Удалить камеру
 app.delete('/api/cameras/:id', (req, res) => {
   const cam = cameras.get(req.params.id);
   if (!cam) return res.status(404).json({ error: 'Camera not found' });
@@ -91,14 +90,12 @@ app.delete('/api/cameras/:id', (req, res) => {
   res.json({ success: true });
 });
 
-// Снимок камеры
 app.get('/api/cameras/:id/snapshot', (req, res) => {
   const snap = snapshots.get(req.params.id);
   if (!snap) return res.status(404).json({ error: 'No snapshot' });
   res.json({ snapshot: snap });
 });
 
-// Алерты
 app.get('/api/alerts', (req, res) => {
   const limit = parseInt(req.query.limit) || 50;
   res.json(alerts.slice(-limit).reverse());
@@ -116,38 +113,6 @@ app.delete('/api/alerts', (req, res) => {
   res.json({ success: true });
 });
 
-// Записи
-app.get('/api/cameras/:id/recordings', (req, res) => {
-  res.json(recordings.get(req.params.id) || []);
-});
-
-// PTZ управление
-app.post('/api/cameras/:id/ptz', (req, res) => {
-  const cam = cameras.get(req.params.id);
-  if (!cam) return res.status(404).json({ error: 'Camera not found' });
-  if (cam.ws && cam.ws.readyState === 1) {
-    cam.ws.send(JSON.stringify({ type: 'ptz-command', command: req.body }));
-    res.json({ success: true });
-  } else {
-    res.status(503).json({ error: 'Camera offline' });
-  }
-});
-
-// Зоны движения
-app.get('/api/cameras/:id/zones', (req, res) => {
-  res.json(motionZones.get(req.params.id) || []);
-});
-
-app.post('/api/cameras/:id/zones', (req, res) => {
-  motionZones.set(req.params.id, req.body.zones || []);
-  const cam = cameras.get(req.params.id);
-  if (cam && cam.ws && cam.ws.readyState === 1) {
-    cam.ws.send(JSON.stringify({ type: 'motion-zones', zones: req.body.zones }));
-  }
-  res.json({ success: true });
-});
-
-// Статистика
 app.get('/api/stats', (req, res) => {
   let online = 0, recording = 0;
   cameras.forEach(c => {
@@ -167,7 +132,7 @@ app.get('/api/stats', (req, res) => {
 // ===== WebSocket =====
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url, 'http://localhost');
-  const role = url.searchParams.get('role'); // 'camera' или 'viewer'
+  const role = url.searchParams.get('role');
 
   if (role === 'camera') {
     handleCameraConnection(ws, url);
@@ -177,39 +142,60 @@ wss.on('connection', (ws, req) => {
 });
 
 function handleCameraConnection(ws, url) {
-  const cameraId = url.searchParams.get('id') || uuidv4();
-  const name = decodeURIComponent(url.searchParams.get('name') || `Camera-${cameraId.slice(0, 6)}`);
-  const location = decodeURIComponent(url.searchParams.get('location') || 'Unknown');
+  const token = url.searchParams.get('token');
+  let cameraId;
+  let name, location;
 
-  const cam = {
-    id: cameraId,
-    name,
-    location,
-    status: 'online',
-    ws,
-    lastSeen: Date.now(),
-    resolution: '1280x720',
-    fps: 30,
-    recording: false
-  };
+  // Если есть токен — используем его как ID
+  if (token && cameraTokens.has(token)) {
+    cameraId = token;
+    const tokenInfo = cameraTokens.get(token);
+    name = decodeURIComponent(url.searchParams.get('name') || tokenInfo.name);
+    location = decodeURIComponent(url.searchParams.get('location') || tokenInfo.location);
+  } else {
+    cameraId = url.searchParams.get('id') || uuidv4();
+    name = decodeURIComponent(url.searchParams.get('name') || `Camera-${cameraId.slice(0, 6)}`);
+    location = decodeURIComponent(url.searchParams.get('location') || 'Unknown');
+  }
 
-  cameras.set(cameraId, cam);
+  let cam = cameras.get(cameraId);
+  if (cam) {
+    if (cam.ws && cam.ws.readyState === 1) {
+      cam.ws.close();
+    }
+    cam.ws = ws;
+    cam.status = 'online';
+    cam.lastSeen = Date.now();
+    cam.name = name;
+    cam.location = location;
+  } else {
+    cam = {
+      id: cameraId,
+      name,
+      location,
+      status: 'online',
+      ws,
+      lastSeen: Date.now(),
+      resolution: '1280x720',
+      fps: 30,
+      recording: false
+    };
+    cameras.set(cameraId, cam);
+  }
+
   console.log(`📷 Camera connected: ${name} (${cameraId})`);
 
   ws.send(JSON.stringify({ type: 'registered', id: cameraId }));
   broadcastToViewers({ type: 'camera-online', camera: sanitizeCam(cam) });
 
-  ws.on('message', (data) => {
+  ws.on('message', (data, isBinary) => {
     try {
-      // Проверяем, бинарные данные или текст
-      if (typeof data !== 'string' && !(data instanceof String)) {
-        // Бинарные данные - это видеокадр
+      cam.lastSeen = Date.now();
+
+      if (isBinary) {
         const base64 = Buffer.from(data).toString('base64');
         const dataUrl = `data:image/jpeg;base64,${base64}`;
         snapshots.set(cameraId, dataUrl);
-        cam.lastSeen = Date.now();
-
-        // Пересылаем подписанным зрителям
         viewers.forEach((viewer, viewerWs) => {
           if (viewer.subscribedTo.has(cameraId) && viewerWs.readyState === 1) {
             viewerWs.send(JSON.stringify({ type: 'video-frame', cameraId, frame: dataUrl, timestamp: Date.now() }));
@@ -218,17 +204,19 @@ function handleCameraConnection(ws, url) {
         return;
       }
 
-      const msg = JSON.parse(data);
+      const text = data.toString('utf8');
+      const msg = JSON.parse(text);
 
       switch (msg.type) {
         case 'frame':
-          snapshots.set(cameraId, msg.frame);
-          cam.lastSeen = Date.now();
-          viewers.forEach((viewer, viewerWs) => {
-            if (viewer.subscribedTo.has(cameraId) && viewerWs.readyState === 1) {
-              viewerWs.send(JSON.stringify({ type: 'video-frame', cameraId, frame: msg.frame, timestamp: Date.now() }));
-            }
-          });
+          if (msg.frame) {
+            snapshots.set(cameraId, msg.frame);
+            viewers.forEach((viewer, viewerWs) => {
+              if (viewer.subscribedTo.has(cameraId) && viewerWs.readyState === 1) {
+                viewerWs.send(JSON.stringify({ type: 'video-frame', cameraId, frame: msg.frame, timestamp: Date.now() }));
+              }
+            });
+          }
           break;
 
         case 'motion-detected':
@@ -236,10 +224,9 @@ function handleCameraConnection(ws, url) {
             id: uuidv4(),
             cameraId,
             type: 'motion',
-            message: msg.message || `Motion detected on ${cam.name}`,
+            message: msg.message || `Движение на ${cam.name}`,
             timestamp: Date.now(),
-            read: false,
-            thumbnail: msg.thumbnail || null
+            read: false
           };
           alerts.push(alert);
           if (alerts.length > 1000) alerts.splice(0, alerts.length - 1000);
@@ -249,33 +236,21 @@ function handleCameraConnection(ws, url) {
         case 'status':
           cam.resolution = msg.resolution || cam.resolution;
           cam.fps = msg.fps || cam.fps;
-          cam.lastSeen = Date.now();
-          break;
-
-        case 'recording-saved':
-          if (!recordings.has(cameraId)) recordings.set(cameraId, []);
-          recordings.get(cameraId).push({
-            id: uuidv4(),
-            start: msg.start,
-            end: msg.end,
-            size: msg.size,
-            thumbnail: msg.thumbnail
-          });
           break;
       }
     } catch (e) {
-      console.error('Camera message parse error:', e.message);
+      console.error('Camera msg error:', e.message);
     }
   });
 
   ws.on('close', () => {
     cam.status = 'offline';
     cam.ws = null;
-    console.log(`📷 Camera disconnected: ${name}`);
+    console.log(`📷 Disconnected: ${name}`);
     broadcastToViewers({ type: 'camera-offline', cameraId });
   });
 
-  ws.on('error', () => {
+  ws.on('error', (err) => {
     cam.status = 'offline';
     cam.ws = null;
   });
@@ -286,14 +261,13 @@ function handleViewerConnection(ws) {
   viewers.set(ws, { id: viewerId, subscribedTo: new Set() });
   console.log(`👁 Viewer connected: ${viewerId}`);
 
-  // Отправить список камер
   const camList = [];
   cameras.forEach(c => camList.push(sanitizeCam(c)));
   ws.send(JSON.stringify({ type: 'camera-list', cameras: camList }));
 
   ws.on('message', (data) => {
     try {
-      const msg = JSON.parse(data);
+      const msg = JSON.parse(data.toString('utf8'));
       const viewer = viewers.get(ws);
       if (!viewer) return;
 
@@ -301,7 +275,6 @@ function handleViewerConnection(ws) {
         case 'subscribe':
           viewer.subscribedTo.add(msg.cameraId);
           ws.send(JSON.stringify({ type: 'subscribed', cameraId: msg.cameraId }));
-          // Отправить последний снапшот сразу
           const snap = snapshots.get(msg.cameraId);
           if (snap) {
             ws.send(JSON.stringify({ type: 'video-frame', cameraId: msg.cameraId, frame: snap, timestamp: Date.now() }));
@@ -310,11 +283,16 @@ function handleViewerConnection(ws) {
 
         case 'unsubscribe':
           viewer.subscribedTo.delete(msg.cameraId);
-          ws.send(JSON.stringify({ type: 'unsubscribed', cameraId: msg.cameraId }));
           break;
 
         case 'subscribe-all':
           cameras.forEach((_, id) => viewer.subscribedTo.add(id));
+          cameras.forEach((_, id) => {
+            const s = snapshots.get(id);
+            if (s) {
+              ws.send(JSON.stringify({ type: 'video-frame', cameraId: id, frame: s, timestamp: Date.now() }));
+            }
+          });
           break;
 
         case 'unsubscribe-all':
@@ -322,7 +300,7 @@ function handleViewerConnection(ws) {
           break;
       }
     } catch (e) {
-      console.error('Viewer message error:', e.message);
+      console.error('Viewer msg error:', e.message);
     }
   });
 
@@ -352,7 +330,6 @@ function broadcastToViewers(msg) {
   });
 }
 
-// Проверка камер каждые 30 сек
 setInterval(() => {
   const now = Date.now();
   cameras.forEach((cam) => {
@@ -364,8 +341,6 @@ setInterval(() => {
 }, 30000);
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`\n🎥 Surveillance System running on http://localhost:${PORT}`);
-  console.log(`📷 Camera page: http://localhost:${PORT}/camera.html`);
-  console.log(`👁  Viewer page: http://localhost:${PORT}/index.html\n`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`\n🎥 Server running on http://localhost:${PORT}`);
 });
